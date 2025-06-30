@@ -46,11 +46,13 @@ int main() {
     std::vector<double> cost;
     int size;
     const int repetitions = 10;
+    int counter =0;
     while (read_matrix(file, cost, size)) {
         std::vector<int64_t> a(size), b(size);
         double total_time = 0.0;
         std::cout << "Starting the run";
         for (int i = 0; i < repetitions; ++i) {
+        std::cout << "Counter: " << counter << " and it is at this stage: " << i << std::flush;
             auto start = std::chrono::high_resolution_clock::now();
             int result = solve_rectangular_linear_sum_assignment(
                 size, size, cost.data(), false, a.data(), b.data()
@@ -62,12 +64,10 @@ int main() {
                           << " failed on run " << i + 1 << " with code " << result << "\n";
                 break;
             }
-            if(repetitions==5) {
-                std::cout << "Halfway there.";
-            }
             std::chrono::duration<double> elapsed = end - start;
             total_time += elapsed.count();
         }
+        counter++;
 
         std::cout << "Matrix " << size << "x" << size << " | "
                   << "Average over " << repetitions << " runs: "
