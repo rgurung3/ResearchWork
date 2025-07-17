@@ -1,139 +1,146 @@
-import java.io.IOException;
 import java.util.*;
 
 public class hungarianAlgo {
 
-    public static void main(String[] args) throws IOException {
-        List<MatrixEntry> matrixEntries = MatrixEntry.loadMatrices("huge_benchmark_matrices.txt");
-        for (MatrixEntry matrix : matrixEntries) {
-            BenchMarks.run(matrix.name, matrix.matrix, 50);
+    public static void printMatrix(int[][] costs, int[] rowPrices, int[] colPrices) {
+        int size = costs.length;
+        System.out.println("=====");
+        for (int row = 1; row <= size; row++) {
+            for (int col = 1; col <= size; col++) {
+                int cost = costs[row-1][col-1] - rowPrices[row] - colPrices[col];
+                System.out.print(" " + cost);
+            }
+            System.out.println();
         }
     }
 
     /**
-     * @param costMatrix The original cost matrix (n x n).
+     * @param costs The original cost matrix (n x n).
      * @return An array where result[i] = j means row i is assigned to column j.
      *
-     * - A deep copy of the matrix is made since the algorithm modifies cost values during computation, and we don't want to modify the original matrix, because the final cost is going to be calculated from that.
-     * - 1-based indexing is used for convenience; mostly used to serve as a dummy placeholder during path construction and didn't want to mess around with switching indexes much.
-     *
-     * The method also initializes the following arrays:
-     * -dualVariableForRows: The label for each row, which helps in defining the reduced cost.
-     * -dualVariableForColumns: The label for each column.
-     * -columnMatching: Stores which row each column is currently matched to.
-     * -pathToColumn: Records the augmenting path so that the algorithm can reassign matches when a better path is found.
-     *
-     * For each row, it calls the executePhase() method to find a valid matching, and after all the rows are matched, it constructs and returns the result in row-major format.
+     * Note that arrays are 1-index for the algorithm.
      */
-    public static int[] solveHungarian(int[][] costMatrix) {
+    public static int[] solveHungarian(int[][] costs) {
+        int size = costs.length;
+        int[][] costsCopy = deepCopy(costs);
 
-        int matrixSize = costMatrix.length;
-        int[][] workingCostMatrix = deepCopy(costMatrix);
+        // for modifying costs
+        int[] rowPrices = new int[size + 1];
+        int[] colPrices = new int[size + 1];
+        // for Dijkstra's algorithm
+        int[] columnToRow = new int[size + 1];
+        int[] columnToLastColumn = new int[size + 1];
 
-        int[] dualVariablesForRows = new int[matrixSize + 1];
-        int[] dualVariablesForColumns = new int[matrixSize + 1];
-        int[] columnMatching = new int[matrixSize + 1];
-        int[] pathToColumn = new int[matrixSize + 1];
-
-        for (int currentRow = 1; currentRow <= matrixSize; currentRow++) {
-            executePhase(currentRow, workingCostMatrix, dualVariablesForRows, dualVariablesForColumns, columnMatching, pathToColumn);
+        for (int row = 1; row <= size; row++) {
+            // run Dijkstra's algorithm for the next row
+            solveNext(row, costsCopy, rowPrices, colPrices, columnToRow, columnToLastColumn);
         }
 
-        int[] resultAssignment = new int[matrixSize];
-        for (int column = 1; column <= matrixSize; column++) {
-            resultAssignment[columnMatching[column] - 1] = column - 1;
+        // return assignment as 0-indexed
+        int[] assignment = new int[size];
+        for (int column = 1; column <= size; column++) {
+            assignment[columnToRow[column] - 1] = column - 1;
         }
-        return resultAssignment;
+        return assignment;
     }
 
     /**
-     * @param currentRow The current row being considered.
-     * @param costMatrix The working cost matrix.
-     * @param dualVariablesForRows Dual variables for rows.
-     * @param dualVariablesForColumns Dual variables for columns.
-     * @param columnMatching Current matching array.
-     * @param pathToColumn Helper array for reconstructing the path.
-     * This method tries to match the given 'currentRow' to a column by building an augmenting path ny using the minimum slack idea (The formula is the value of cost[i][j]-u[i]-v[j] where u and v are the row and columns being used).
-     * If the row is already matched indirectly, the algorithm reroutes previous matches to make space.
-     *
-     * The method makes use of helpful variables such as:
-     * -minimumSlack array: This stores the smallest reduced cost seen for each column so far.
-     * -visitedColumns: This keeps track of which columns have already been visited during this phase, because if the column is already visited then we do not want to consider that column anymore.
-     *
-     *  The method mostly uses variables that are passed to it from the solveHungarian() method, so other variables are explained in the method above.
-     *
-     *  As the scan progresses, the dual variables are updated using the smallest slack found so far, allowing new edges to appear where the reduced cost becomes zero. These edges are also called tight edges, meaning that they are
-     *  currently the most optimal assignment based on the adjusted costs. Once the algorithm reaches an unmatched column (This basically means that the column is not yet assigned to any row), it stops and calls reconstructPath() to finalize
-     *  the assignment by retracting the path (or just that the valid augmenting path has been found, and we can update the matrix).
+     * @param initialRow The next row of the matrix to solve.
+     * @param costs The input cost matrix.
+     * @param rowPrices Row updates to cost matrix.
+     * @param colPrices Column updates to cost matrix.
+     * @param columnToRow Mapping from column to its matched row.
+     * @param columnToLastColumn Mapping from column to the previous column used to reach it.
      */
-    private static void executePhase(int currentRow, int[][] costMatrix,
-                                     int[] dualVariablesForRows, int[] dualVariablesForColumns,
-                                     int[] columnMatching, int[] pathToColumn) {
+    private static void solveNext(int initialRow, 
+                                  int[][] costs, int[] rowPrices, int[] colPrices,
+                                  int[] columnToRow, int[] columnToLastColumn) {
 
-        int matrixSize = costMatrix.length;
-        columnMatching[0] = currentRow;
+        int size = costs.length;
 
-        int currentColumn = 0;
-        int[] minimumSlack = new int[matrixSize + 1];
-        boolean[] visitedColumns = new boolean[matrixSize + 1];
-        Arrays.fill(minimumSlack, Integer.MAX_VALUE);
+        // for Dijkstra's algorithm
+        boolean[] visitedColumn = new boolean[size + 1];
+        int[] distanceToColumn = new int[size + 1];
+        Arrays.fill(distanceToColumn, Integer.MAX_VALUE);
 
+        // the graph is a bipartite graph of row nodes and column nodes.
+        // find shortest path from the initial row, to any unmatched column.
+        int closestColumn = 0;                   // 0 is a dummy column
+        columnToRow[closestColumn] = initialRow; // dummy matching to dummy column
         do {
-            visitedColumns[currentColumn] = true;
-            int rowBeingScanned = columnMatching[currentColumn];
-            int smallestSlack = Integer.MAX_VALUE;
-            int columnWithSmallestSlack = -1;
+            // start by visiting the column node
+            visitedColumn[closestColumn] = true;
+            // there is a unique outgoing edge, so immediately move to the row node
+            // (this col->row edge was reweighted to have 0 cost)
+            int row = columnToRow[closestColumn];
 
-            for (int candidateColumn = 1; candidateColumn <= matrixSize; candidateColumn++) {
-                if (!visitedColumns[candidateColumn]) {
-                    int slack = costMatrix[rowBeingScanned - 1][candidateColumn - 1]
-                            - dualVariablesForRows[rowBeingScanned]
-                            - dualVariablesForColumns[candidateColumn];
-                    if (slack < minimumSlack[candidateColumn]) {
-                        minimumSlack[candidateColumn] = slack;
-                        pathToColumn[candidateColumn] = currentColumn;
-                    }
-                    if (minimumSlack[candidateColumn] < smallestSlack) {
-                        smallestSlack = minimumSlack[candidateColumn];
-                        columnWithSmallestSlack = candidateColumn;
+            // update the distances to columns by going through new row
+            for (int column = 1; column <= size; column++) {
+                if (!visitedColumn[column]) {
+                    // reweighted cost
+                    int cost = costs[row - 1][column - 1] - rowPrices[row] - colPrices[column];
+                    if (cost < distanceToColumn[column]) {
+                        distanceToColumn[column] = cost;
+                        columnToLastColumn[column] = closestColumn;
                     }
                 }
             }
 
-            for (int column = 0; column <= matrixSize; column++) {
-                if (visitedColumns[column]) {
-                    dualVariablesForRows[columnMatching[column]] += smallestSlack;
-                    dualVariablesForColumns[column] -= smallestSlack;
+            // check for the next closest unvisited column
+            int minDistance = Integer.MAX_VALUE;
+            for (int column = 1; column <= size; column++) {
+                if (!visitedColumn[column]) {
+                    if (distanceToColumn[column] < minDistance) {
+                        minDistance = distanceToColumn[column];
+                        closestColumn = column;
+                    }
+                }
+            }
+
+            // update the weights (prices).  note that updating the
+            // row weights, or updating the column weights do not
+            // change the optimal solution to the assignment problem
+            for (int column = 0; column <= size; column++) {
+                if (visitedColumn[column]) {
+                    // this reduces the cost of all visited rows, with
+                    // the closest row/col pair reduced to zero cost
+                    rowPrices[columnToRow[column]] += minDistance;
+                    // this offsets the reduced cost above, to keep
+                    // the previous zero's non-negative
+                    colPrices[column] -= minDistance;
                 } else {
-                    minimumSlack[column] -= smallestSlack;
+                    // all the row-to-column distances were updated,
+                    // so distances vector should also be updated
+                    distanceToColumn[column] -= minDistance;
                 }
             }
 
-            currentColumn = columnWithSmallestSlack;
-        } while (columnMatching[currentColumn] != 0);
+            // at this point, the shortest path to the closest column
+            // has a distance of zero from the starting row.  if the
+            // closest column is also unmatched, then we are done.
+        } while (columnToRow[closestColumn] != 0);
+        // when the loop ends, we know the (partial) matching is
+        // optimal since it has a cost of zero.
 
-        reconstructPath(currentColumn, columnMatching, pathToColumn);
+        updateMatching(closestColumn, columnToRow, columnToLastColumn);
     }
 
     /**
-     * @param currentColumn Final column in the augmenting path.
-     * @param columnMatching Matching array (column to row).
-     * @param pathToColumn Helper array to backtrack the path.
-     *
-     * Starting from the unmatched column (the end of the augmenting path), this method traces backward through the 'pathToColumn' array, using each recorded predecessor to step through the path in reverse.
-     *
-     * At each step, the columnMatching array is updated to assign the column to the row that led to it. This process updates all the matches along the path that was found, thus making room for the new
-     * match at the end.
-     *
-     * This sets up the new assignment found in executePhase() and ensure that the matching stays valid and up to date. Basically, after this method executes, the row that was unmatched let's say is now
-     * successfully assigned to a column.
+     * @param column Final column in the augmenting path.
+     * @param columnToRow Map from column to the matching row.
+     * @param columnToLastColumn Map from column to the last column on the augmenting path.
      */
-    private static void reconstructPath(int currentColumn, int[] columnMatching, int[] pathToColumn) {
+    private static void updateMatching(int column, int[] columnToRow, int[] columnToLastColumn) {
+        // columnToLastColumn has the sequence of columns on the
+        // shortest path starting from the initial column 0, to the
+        // unmatched column which is input.  This sequence of edges is 
+        //    unmatched-matched-unmatched-...-unmatched
+        // which we need to toggle.
         do {
-            int previousColumn = pathToColumn[currentColumn];
-            columnMatching[currentColumn] = columnMatching[previousColumn];
-            currentColumn = previousColumn;
-        } while (currentColumn != 0);
+            int lastColumn = columnToLastColumn[column];
+            columnToRow[column] = columnToRow[lastColumn];
+            column = lastColumn;
+        } while (column != 0);
     }
 
     /**
@@ -143,7 +150,7 @@ public class hungarianAlgo {
      * @return A deep copy of the original matrix.
      */
     private static int[][] deepCopy(int[][] original) {
-        int[][] copy = new int[original.length][original[0].length];
+        int[][] copy = new int[original.length][];
         for (int i = 0; i < original.length; i++)
             copy[i] = original[i].clone();
         return copy;
