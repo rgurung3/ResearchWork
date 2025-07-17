@@ -209,31 +209,43 @@ public class Enumeration {
         return results;
     }
     public static void main(String[] args) {
-        int[][] matrix = generateMatrix(10, 1, 100);
-        Set<List<Integer>> uniqueAssignments = new HashSet<>();
-        int k = 1000;
+        int n = 8;
+        int[][] matrix = generateMatrix(n, 1000, 9999);
 
-        while (true) {
-            List<AssignmentResult> results = getTopKMurtys(matrix, k);
-            int prevSize = uniqueAssignments.size();
+        System.out.println("Matrix Size: " + n + "x" + n);
+        System.out.println("Expected Permutations (n!): " + factorial(n));
 
-            for (AssignmentResult r : results) {
-                uniqueAssignments.add(r.assignments);
+        System.out.println("Generating brute-force permutations...");
+        List<AssignmentResult> brute = generateAllAssignments(matrix);
+        Set<List<Integer>> bruteSet = new HashSet<>();
+        for (AssignmentResult r : brute) bruteSet.add(r.assignments);
+        System.out.println("Brute-force complete. Unique assignments: " + bruteSet.size());
+
+        System.out.println("Running Murty’s algorithm...");
+        int k = (int) (factorial(n) + 5000);
+        List<AssignmentResult> murty = getTopKMurtys(matrix, k);
+        Set<List<Integer>> murtySet = new HashSet<>();
+        for (AssignmentResult r : murty) murtySet.add(r.assignments);
+        System.out.println("Murty complete. Unique assignments: " + murtySet.size());
+
+        if (bruteSet.equals(murtySet)) {
+            System.out.println("Murty matches brute-force. All permutations captured.");
+        } else {
+            System.out.println("Mismatch found between Murty and brute-force.");
+
+            System.out.println("Missing from Murty:");
+            for (List<Integer> perm : bruteSet) {
+                if (!murtySet.contains(perm)) {
+                    System.out.println("  " + perm);
+                }
             }
 
-            System.out.println("K = " + k + ", Unique = " + uniqueAssignments.size());
-
-            if (uniqueAssignments.size() == factorial(matrix.length)) {
-                System.out.println("Enumerated all " + factorial(matrix.length) + " possible assignments.");
-                break;
+            System.out.println("Extra in Murty (not in brute-force):");
+            for (List<Integer> perm : murtySet) {
+                if (!bruteSet.contains(perm)) {
+                    System.out.println("  " + perm);
+                }
             }
-
-            if (uniqueAssignments.size() == prevSize) {
-                System.out.println("No new unique assignments found at K = " + k);
-                break;
-            }
-
-            k += 1000;
         }
         
     }
