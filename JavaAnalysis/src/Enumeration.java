@@ -209,43 +209,28 @@ public class Enumeration {
         return results;
     }
     public static void main(String[] args) {
-        int n = 8;
-        int[][] matrix = generateMatrix(n, 1000, 9999);
+        int trials = 5;
+        int n = 10;
+        List<Integer> ks = Arrays.asList(1000, 5000, 10000, 25000, 50000, 100000,500000, 1000000, 2000000, 3000000, 3700000);
+        List<Long> averageTimes = new ArrayList<>();
 
-        System.out.println("Matrix Size: " + n + "x" + n);
-        System.out.println("Expected Permutations (n!): " + factorial(n));
+        for (int k : ks) {
+            long totalTime = 0;
 
-        System.out.println("Generating brute-force permutations...");
-        List<AssignmentResult> brute = generateAllAssignments(matrix);
-        Set<List<Integer>> bruteSet = new HashSet<>();
-        for (AssignmentResult r : brute) bruteSet.add(r.assignments);
-        System.out.println("Brute-force complete. Unique assignments: " + bruteSet.size());
+            for (int t = 0; t < trials; t++) {
+                int[][] costMatrix = generateMatrix(n, 1000, 9999);
 
-        System.out.println("Running Murty’s algorithm...");
-        int k = (int) (factorial(n) + 5000);
-        List<AssignmentResult> murty = getTopKMurtys(matrix, k);
-        Set<List<Integer>> murtySet = new HashSet<>();
-        for (AssignmentResult r : murty) murtySet.add(r.assignments);
-        System.out.println("Murty complete. Unique assignments: " + murtySet.size());
+                long start = System.currentTimeMillis();
+                List<AssignmentResult> result = getTopKMurtys(costMatrix, k);
+                long end = System.currentTimeMillis();
 
-        if (bruteSet.equals(murtySet)) {
-            System.out.println("Murty matches brute-force. All permutations captured.");
-        } else {
-            System.out.println("Mismatch found between Murty and brute-force.");
-
-            System.out.println("Missing from Murty:");
-            for (List<Integer> perm : bruteSet) {
-                if (!murtySet.contains(perm)) {
-                    System.out.println("  " + perm);
-                }
+                totalTime += (end - start);
             }
 
-            System.out.println("Extra in Murty (not in brute-force):");
-            for (List<Integer> perm : murtySet) {
-                if (!bruteSet.contains(perm)) {
-                    System.out.println("  " + perm);
-                }
-            }
+            long avgTime = totalTime / trials;
+            averageTimes.add(avgTime);
+
+            System.out.println("K = " + k + ", Average Time = " + avgTime + " ms");
         }
         
     }
